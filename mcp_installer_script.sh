@@ -314,7 +314,7 @@ EOF
     log_success "MCP-Server Code erstellt"
 }
 
-# Terminal Client erstellen (HINZUGEFÜGT)
+# Terminal Client erstellen
 create_terminal_client() {
     log_info "Erstelle Terminal Client..."
     
@@ -968,40 +968,285 @@ EOF
     log_success "Container-Management-Scripts erstellt"
 }
 
-# Login-Script erstellen
+# Erweiterte Login-Funktion für MCP Container
 create_login_script() {
-    log_info "Erstelle Login-Script..."
+    log_info "Erstelle erweitertes Login-Script..."
     
     cat > login.sh << 'EOF'
 #!/bin/bash
 
+# Erweiterte Login-Funktion für MCP Container
+# Mit besserer Benutzerführung und mehr Optionen
+
 CONTAINER_NAME="mcp-server"
 
-echo "🔐 Logge in MCP Container ein..."
+# Farben für Output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
 
-# Prüfe ob Container läuft
-if ! podman ps --format "{{.Names}}" | grep -q "^${CONTAINER_NAME}$"; then
-    echo "❌ Container '$CONTAINER_NAME' läuft nicht!"
-    echo "🚀 Starte Container mit: ./start_container.sh"
-    exit 1
-fi
+# Logging Funktionen
+log_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
 
-# Container-Info anzeigen
-echo "🐳 Container: $CONTAINER_NAME"
-echo "🔗 MCP Inspector: http://localhost:6247"
-echo "🔗 Web Client: http://localhost:8501"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+log_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+log_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Banner anzeigen
+show_banner() {
+    echo -e "${CYAN}"
+    echo "════════════════════════════════════════"
+    echo "      🔐 MCP Container Login v2.0"
+    echo "════════════════════════════════════════"
+    echo -e "${NC}"
+}
+
+# Container-Status prüfen
+check_container_status() {
+    if ! podman ps --format "{{.Names}}" | grep -q "^${CONTAINER_NAME}$"; then
+        log_error "Container '$CONTAINER_NAME' läuft nicht!"
+        echo ""
+        echo -e "${YELLOW}🔧 Verfügbare Optionen:${NC}"
+        echo "1. Container starten: ./start_container.sh"
+        echo "2. Container bauen: ./build_container.sh"
+        echo "3. Status prüfen: ./container_status.sh"
+        echo "4. Management: ./manage_mcp.sh"
+        echo ""
+        
+        # Automatischen Start anbieten
+        read -p "🚀 Soll der Container automatisch gestartet werden? (j/n): " auto_start
+        if [[ $auto_start =~ ^[Jj]$ ]]; then
+            if [ -f "./start_container.sh" ]; then
+                log_info "Starte Container..."
+                ./start_container.sh
+                if [ $? -eq 0 ]; then
+                    log_success "Container erfolgreich gestartet!"
+                    sleep 2
+                    return 0
+                else
+                    log_error "Fehler beim Starten des Containers"
+                    return 1
+                fi
+            else
+                log_error "start_container.sh nicht gefunden!"
+                return 1
+            fi
+        else
+            return 1
+        fi
+    fi
+    return 0
+}
+
+# Container-Informationen anzeigen
+show_container_info() {
+    echo -e "${PURPLE}🐳 Container-Informationen:${NC}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo -e "${BLUE}📦 Container:${NC} $CONTAINER_NAME"
+    
+    # Container-Status
+    container_status=$(podman inspect $CONTAINER_NAME --format "{{.State.Status}}" 2>/dev/null)
+    echo -e "${BLUE}📊 Status:${NC} $container_status"
+    
+    # Uptime
+    container_started=$(podman inspect $CONTAINER_NAME --format "{{.State.StartedAt}}" 2>/dev/null)
+    echo -e "${BLUE}⏰ Gestartet:${NC} $container_started"
+    
+    # Port-Mappings
+    echo -e "${BLUE}🔗 Ports:${NC}"
+    podman port $CONTAINER_NAME 2>/dev/null | while read line; do
+        echo "   • $line"
+    done
+    
+    echo ""
+    echo -e "${GREEN}🌐 Web-Interfaces:${NC}"
+    echo "   • MCP Inspector: http://localhost:6247"
+    echo "   • Streamlit Client: http://localhost:8501"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+}
+
+# Hilfe-Menü anzeigen
+show_help_menu() {
+    echo -e "${YELLOW}💡 Hilfreiche Befehle im Container:${NC}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo -e "${CYAN}🖥️  Terminal-Client:${NC}"
+    echo "   python terminal_client.py    # Interaktiver MCP-Client"
+    echo ""
+    echo -e "${CYAN}🌐 Web-Services:${NC}"
+    echo "   python mcp_server.py         # MCP-Server manuell starten"
+    echo "   streamlit run streamlit_client.py --server.port 8501 --server.headless true"
+    echo ""
+    echo -e "${CYAN}📁 Dateisystem:${NC}"
+    echo "   ls -la /app/                 # Container-Dateien anzeigen"
+    echo "   cat requirements.txt         # Python-Dependencies"
+    echo "   ps aux                       # Laufende Prozesse"
+    echo ""
+    echo -e "${CYAN}🔧 Debugging:${NC}"
+    echo "   curl http://localhost:6247   # MCP-Server testen"
+    echo "   netstat -tulpn               # Offene Ports prüfen"
+    echo "   tail -f /var/log/*.log       # System-Logs"
+    echo ""
+    echo -e "${CYAN}🚪 Beenden:${NC}"
+    echo "   exit                         # Container verlassen"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+}
+
+# Login-Optionen anzeigen
+show_login_options() {
+    echo -e "${YELLOW}🎯 Login-Optionen:${NC}"
+    echo "1) 🐚 Standard Bash-Shell"
+    echo "2) 🖥️ Direkt zum Terminal-Client"
+    echo "3) 🔧 Service-Status prüfen"
+    echo "4) 📋 Hilfe anzeigen und dann einloggen"
+    echo "5) ❌ Abbrechen"
+    echo ""
+    read -p "Wählen Sie eine Option (1-5): " login_choice
+    
+    case $login_choice in
+        1)
+            return 1  # Standard Login
+            ;;
+        2)
+            return 2  # Terminal Client
+            ;;
+        3)
+            return 3  # Service Status
+            ;;
+        4)
+            show_help_menu
+            return 1  # Nach Hilfe Standard Login
+            ;;
+        5)
+            echo "👋 Login abgebrochen"
+            exit 0
+            ;;
+        *)
+            log_warning "Ungültige Option, verwende Standard-Login"
+            return 1
+            ;;
+    esac
+}
 
 # In Container einloggen
-echo "🎯 Logge in Container ein..."
-podman exec -it $CONTAINER_NAME /bin/bash
+perform_login() {
+    local login_type=$1
+    
+    case $login_type in
+        2)
+            log_info "Starte Terminal-Client direkt..."
+            echo -e "${GREEN}🎯 Terminal-Client wird gestartet...${NC}"
+            echo -e "${BLUE}💡 Verwenden Sie 'help' für verfügbare Befehle${NC}"
+            echo -e "${BLUE}💡 Verwenden Sie 'quit' um den Client zu beenden${NC}"
+            echo ""
+            podman exec -it $CONTAINER_NAME python terminal_client.py
+            ;;
+        3)
+            log_info "Prüfe Service-Status..."
+            podman exec -it $CONTAINER_NAME /bin/bash -c "
+                echo '📊 Container-Services Status:'
+                echo '════════════════════════════'
+                echo '🔍 Laufende Prozesse:'
+                ps aux | grep -E '(mcp_server|streamlit|python)' | grep -v grep
+                echo ''
+                echo '🌐 Offene Ports:'
+                netstat -tulpn 2>/dev/null | grep -E ':(6247|8501|8080)' || echo 'Keine MCP-Ports gefunden'
+                echo ''
+                echo '📁 Container-Dateien:'
+                ls -la /app/
+                echo ''
+                echo '💾 Speicher-Nutzung:'
+                free -h
+                echo ''
+                echo 'Drücken Sie Enter für Standard-Shell...'
+                read
+            "
+            podman exec -it $CONTAINER_NAME /bin/bash
+            ;;
+        *)
+            log_info "Starte Standard Bash-Shell..."
+            echo -e "${GREEN}🎯 Willkommen in Ihrem MCP Container! 🐳${NC}"
+            echo -e "${BLUE}💡 Verwenden Sie 'python terminal_client.py' für MCP-Interaktion${NC}"
+            echo -e "${BLUE}💡 Verwenden Sie 'exit' um den Container zu verlassen${NC}"
+            echo ""
+            podman exec -it $CONTAINER_NAME /bin/bash
+            ;;
+    esac
+}
 
-# Nach dem Logout
-echo "👋 Logout aus Container abgeschlossen"
+# Post-Login Aktionen
+post_login_actions() {
+    echo ""
+    log_success "Login-Session beendet"
+    echo ""
+    echo -e "${BLUE}📋 Nützliche Befehle für später:${NC}"
+    echo "  ./login.sh               # Erneut einloggen"
+    echo "  ./container_status.sh    # Container-Status prüfen"
+    echo "  ./manage_mcp.sh          # Management-Interface"
+    echo "  ./stop_container.sh      # Container stoppen"
+    echo ""
+    echo -e "${GREEN}🔗 Web-Interfaces (falls Container läuft):${NC}"
+    echo "  http://localhost:6247    # MCP Inspector"
+    echo "  http://localhost:8501    # Streamlit Client"
+    echo ""
+    
+    # Frage nach Browser-Öffnung
+    if command -v xdg-open &> /dev/null; then
+        read -p "🌐 Sollen die Web-Interfaces im Browser geöffnet werden? (j/n): " open_browser
+        if [[ $open_browser =~ ^[Jj]$ ]]; then
+            log_info "Öffne Web-Interfaces..."
+            xdg-open http://localhost:6247 2>/dev/null &
+            xdg-open http://localhost:8501 2>/dev/null &
+            log_success "Browser-Tabs geöffnet"
+        fi
+    fi
+}
+
+# Hauptfunktion
+main() {
+    show_banner
+    
+    # Container-Status prüfen
+    if ! check_container_status; then
+        exit 1
+    fi
+    
+    # Container-Informationen anzeigen
+    show_container_info
+    echo ""
+    
+    # Login-Optionen anzeigen
+    show_login_options
+    login_type=$?
+    
+    echo ""
+    
+    # Login durchführen
+    perform_login $login_type
+    
+    # Post-Login Aktionen
+    post_login_actions
+}
+
+# Script ausführen
+main "$@"
 EOF
 
     chmod +x login.sh
-    log_success "Login-Script erstellt: login.sh"
+    log_success "Erweitertes Login-Script erstellt: login.sh"
 }
 
 # All-in-One Management Script
@@ -1366,6 +1611,307 @@ EOF
     log_success "Container-Dokumentation erstellt"
 }
 
+# Linux MCP-Client erstellen (funktioniert ohne MCP-Module)
+create_linux_mcp_client() {
+    log_info "Erstelle Linux MCP-Client..."
+    
+    cat > linux_mcp_client.py << 'EOF'
+#!/usr/bin/env python3
+"""
+Linux MCP-Client - Funktioniert OHNE MCP-Module!
+Direkter Container-Zugriff für alle MCP-ähnlichen Funktionen
+"""
+
+import subprocess
+import sys
+
+class SimpleLinuxMCPClient:
+    def __init__(self):
+        self.container_name = "mcp-server"
+    
+    def show_banner(self):
+        print("\n" + "="*50)
+        print("🐧 LINUX MCP CLIENT (Direkter Modus)")
+        print("="*50)
+        print("✅ Funktioniert OHNE MCP-Module!")
+        print("🐳 Direkter Container-Zugriff")
+        print("="*50)
+    
+    def check_container(self):
+        try:
+            result = subprocess.run(
+                ["podman", "ps", "--format", "{{.Names}}"],
+                capture_output=True, text=True
+            )
+            return self.container_name in result.stdout
+        except:
+            return False
+    
+    def execute_in_container(self, python_code):
+        """Führe Python-Code direkt im Container aus"""
+        try:
+            result = subprocess.run([
+                "podman", "exec", self.container_name,
+                "python", "-c", python_code
+            ], capture_output=True, text=True, check=True)
+            return result.stdout.strip()
+        except subprocess.CalledProcessError as e:
+            return f"Fehler: {e}"
+    
+    def run_interactive(self):
+        """Interaktive Schleife"""
+        self.show_banner()
+        
+        if not self.check_container():
+            print("❌ Container läuft nicht!")
+            choice = input("🚀 Container starten? (j/n): ")
+            if choice.lower() in ['j', 'y']:
+                subprocess.run(["./start_container.sh"])
+                if not self.check_container():
+                    print("❌ Container-Start fehlgeschlagen")
+                    return
+            else:
+                return
+        
+        print("\n🚀 Linux MCP-Client bereit!")
+        print("💡 Befehle: add 5 3, mult 4 7, sqrt 16, time, info, help, quit")
+        
+        while True:
+            try:
+                command = input("\n🐧 MCP > ").strip()
+                parts = command.split()
+                
+                if not parts:
+                    continue
+                
+                cmd = parts[0].lower()
+                
+                if cmd in ['quit', 'exit', 'q']:
+                    break
+                elif cmd == 'help':
+                    print("\n📋 Verfügbare Befehle:")
+                    print("  add 5 3      # Addition")
+                    print("  mult 4 7     # Multiplikation")
+                    print("  sqrt 16      # Quadratwurzel")
+                    print("  time         # Aktuelle Zeit")
+                    print("  info         # Container-Info")
+                    print("  help         # Diese Hilfe")
+                    print("  quit         # Beenden")
+                elif cmd == 'time':
+                    result = self.execute_in_container("import datetime; print(datetime.datetime.now())")
+                    print(f"🕐 Container-Zeit: {result}")
+                elif cmd == 'info':
+                    result = self.execute_in_container("import socket, os; print(f'Host: {socket.gethostname()}, Dir: {os.getcwd()}')")
+                    print(f"🐳 Container-Info: {result}")
+                elif cmd == 'add' and len(parts) == 3:
+                    try:
+                        a, b = float(parts[1]), float(parts[2])
+                        result = self.execute_in_container(f"print({a} + {b})")
+                        print(f"➕ {a} + {b} = {result}")
+                    except ValueError:
+                        print("❌ Ungültige Zahlen")
+                elif cmd == 'mult' and len(parts) == 3:
+                    try:
+                        a, b = float(parts[1]), float(parts[2])
+                        result = self.execute_in_container(f"print({a} * {b})")
+                        print(f"✖️ {a} × {b} = {result}")
+                    except ValueError:
+                        print("❌ Ungültige Zahlen")
+                elif cmd == 'sqrt' and len(parts) == 2:
+                    try:
+                        num = float(parts[1])
+                        result = self.execute_in_container(f"import math; print(math.sqrt({num}))")
+                        print(f"√ √{num} = {result}")
+                    except ValueError:
+                        print("❌ Ungültige Zahl")
+                else:
+                    print("❌ Unbekannter Befehl. Verwenden Sie 'help' für Hilfe.")
+            
+            except KeyboardInterrupt:
+                print("\n👋 Auf Wiedersehen!")
+                break
+            except Exception as e:
+                print(f"❌ Fehler: {e}")
+
+if __name__ == "__main__":
+    client = SimpleLinuxMCPClient()
+    client.run_interactive()
+EOF
+
+    chmod +x linux_mcp_client.py
+    log_success "Linux MCP-Client erstellt"
+}
+
+# Browser-Shortcuts erstellen
+create_linux_browser_shortcuts() {
+    log_info "Erstelle Browser-Shortcuts..."
+    
+    cat > open_all_interfaces.sh << 'EOF'
+#!/bin/bash
+
+echo "🌐 Öffne alle MCP-Interfaces..."
+
+# Container prüfen
+if ! podman ps --format "{{.Names}}" | grep -q "^mcp-server$"; then
+    echo "❌ Container läuft nicht!"
+    read -p "🚀 Container starten? (j/n): " choice
+    if [[ $choice =~ ^[Jj]$ ]]; then
+        ./start_container.sh
+        sleep 3
+    else
+        exit 1
+    fi
+fi
+
+# Browser öffnen
+echo "🔍 Öffne MCP Inspector..."
+if command -v firefox &> /dev/null; then
+    firefox http://localhost:6247 2>/dev/null &
+elif command -v google-chrome &> /dev/null; then
+    google-chrome http://localhost:6247 2>/dev/null &
+elif command -v xdg-open &> /dev/null; then
+    xdg-open http://localhost:6247 2>/dev/null &
+fi
+
+sleep 1
+
+echo "🌐 Öffne Web-Client..."
+if command -v firefox &> /dev/null; then
+    firefox http://localhost:8501 2>/dev/null &
+elif command -v google-chrome &> /dev/null; then
+    google-chrome http://localhost:8501 2>/dev/null &
+elif command -v xdg-open &> /dev/null; then
+    xdg-open http://localhost:8501 2>/dev/null &
+fi
+
+echo "✅ Browser-Tabs geöffnet!"
+echo "📋 URLs:"
+echo "  • MCP Inspector: http://localhost:6247"
+echo "  • Web Client: http://localhost:8501"
+EOF
+
+    chmod +x open_all_interfaces.sh
+    log_success "Browser-Shortcuts erstellt"
+}
+
+# Linux Quickstart-Tool erstellen
+create_linux_quickstart() {
+    log_info "Erstelle Linux Quickstart-Tool..."
+    
+    cat > linux_quickstart.sh << 'EOF'
+#!/bin/bash
+
+echo -e "\033[0;34m🐧 LINUX MCP QUICKSTART\033[0m"
+echo "========================"
+
+# Container starten falls nötig
+if ! podman ps --format "{{.Names}}" | grep -q "^mcp-server$"; then
+    echo "🚀 Starte Container..."
+    ./start_container.sh
+    sleep 2
+fi
+
+echo "✅ Container läuft!"
+echo ""
+echo "🎯 Was möchten Sie tun?"
+echo "1) 🐧 Linux MCP-Client (Terminal)"
+echo "2) 🌐 Browser-Interfaces öffnen"
+echo "3) 🔐 In Container einloggen"
+
+read -p "Option (1-3): " choice
+
+case $choice in
+    1)
+        ./linux_mcp_client.py
+        ;;
+    2)
+        ./open_all_interfaces.sh
+        ;;
+    3)
+        ./login.sh
+        ;;
+    *)
+        echo "Starte Standard-Option 1..."
+        ./linux_mcp_client.py
+        ;;
+esac
+EOF
+
+    chmod +x linux_quickstart.sh
+    log_success "Quickstart-Tool erstellt"
+}
+
+# Linux MCP Integration (Hauptfunktion)
+install_linux_mcp_integration() {
+    log_info "Installiere Linux MCP-Integration..."
+    
+    # Alle Linux-spezifischen Tools erstellen
+    create_linux_mcp_client
+    create_linux_browser_shortcuts
+    create_linux_quickstart
+    
+    # Linux-spezifische Dokumentation
+    cat > LINUX_MCP_GUIDE.md << 'EOF'
+# 🐧 Linux MCP - Kompletter Guide
+
+## 🚀 Sofort loslegen
+
+### Quickstart (Empfohlen)
+```bash
+./linux_quickstart.sh
+```
+
+### Manuell
+```bash
+# Container starten
+./start_container.sh
+
+# Linux MCP-Client starten  
+./linux_mcp_client.py
+
+# Browser öffnen
+./open_all_interfaces.sh
+```
+
+## 🛠️ Linux-spezifische Tools
+
+- `linux_quickstart.sh` - Einfachster Einstieg
+- `linux_mcp_client.py` - Terminal-Client (funktioniert OHNE MCP-Module)
+- `open_all_interfaces.sh` - Browser-Shortcuts
+- `login.sh` - Erweiterte Container-Login
+
+## 💡 Linux-Vorteile
+
+✅ **Funktioniert ohne Claude Desktop**
+✅ **Keine MCP Python-Module nötig**
+✅ **Native Container-Integration**
+✅ **Terminal-Power**
+✅ **Browser-Integration**
+
+## 🎯 Empfohlener Workflow
+
+1. `./linux_quickstart.sh`
+2. Option 1 wählen (Terminal-Client)
+3. Befehle testen: `add 5 3`, `time`, `help`
+4. Browser öffnen für Web-Interface
+
+---
+**🐧 Linux ist perfekt für MCP!**
+EOF
+
+    log_success "Linux MCP-Integration installiert!"
+    
+    echo -e "\n${GREEN}════════════════════════════════════════════════${NC}"
+    echo -e "${GREEN}🎉 LINUX MCP INTEGRATION ERFOLGREICH! 🎉${NC}"
+    echo -e "${GREEN}════════════════════════════════════════════════${NC}"
+    echo -e "${BLUE}🚀 Sofort nutzbar:${NC}"
+    echo "  ./linux_quickstart.sh        # Einfachster Start"
+    echo "  ./linux_mcp_client.py        # Terminal-Client"
+    echo "  ./open_all_interfaces.sh     # Browser öffnen"
+    echo ""
+    echo -e "${GREEN}🐧 Linux MCP bereit! 🚀${NC}"
+}
+
 # Hauptinstallation
 main() {
     show_banner
@@ -1389,13 +1935,14 @@ main() {
     create_dockerfile
     create_requirements
     create_mcp_server
-    create_terminal_client      # HINZUGEFÜGT
+    create_terminal_client
     create_streamlit_client
     create_container_services
     create_container_management
     create_login_script
     create_management_script
     create_container_readme
+    install_linux_mcp_integration    # ✅ ===== LINUX MCP INTEGRATION =====
     
     # Container bauen
     log_container "Bereite Container-Build vor..."
@@ -1466,6 +2013,11 @@ main() {
         echo "  ./manage_mcp.sh        - Management-Interface"
         echo "  ./container_status.sh  - Container-Status prüfen"
         echo "  ./stop_container.sh    - Container stoppen"
+        echo ""
+        echo -e "${BLUE}🐧 Linux MCP-Tools:${NC}"
+        echo "  ./linux_quickstart.sh  - Einfachster Start"
+        echo "  ./linux_mcp_client.py  - Terminal-Client"
+        echo "  ./open_all_interfaces.sh - Browser öffnen"
     else
         log_error "Fehler beim automatischen Container-Start!"
         echo -e "${YELLOW}🔧 Troubleshooting-Schritte:${NC}"
