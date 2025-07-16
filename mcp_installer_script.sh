@@ -142,8 +142,12 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Python-Dependencies installieren
+COPY app.py .
+
+# Python-Dependencies installieren
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install Flask
 
 # MCP-Server Dateien kopieren
 COPY mcp_server.py .
@@ -152,7 +156,7 @@ COPY terminal_client.py .
 COPY start_container_services.sh .
 
 # Ports freigeben
-EXPOSE 6247 8501 8080
+EXPOSE 6247 8501 8080 5000
 
 # Startscript ausführbar machen
 RUN chmod +x start_container_services.sh
@@ -321,231 +325,230 @@ create_terminal_client() {
     cat > terminal_client.py << 'EOF'
 #!/usr/bin/env python3
 """
-Terminal-Client für Container-MCP-Server
+Terminal-Client für Container-MCP-Server (API-kompatibel)
 """
 
-import asyncio
-import json
-import socket
-import subprocess
-import datetime
 import sys
+import json
+from datetime import datetime
 import os
+import subprocess
+import math
 
-class MCPTerminalClient:
-    def __init__(self):
-        self.hostname = socket.gethostname()
-        self.welcome_shown = False
+# --- Tool-Funktionen ---
+def get_time():
+    return f"🕐 Container-Zeit: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+
+def get_info():
+    info = {
+      "hostname": os.environ.get("HOSTNAME", "unknown"),
+      "cwd": os.getcwd(),
+      "env": "Container",
+      "python_version": subprocess.check_output(["python", "--version"]).decode().strip()
+    }
+    return f"🐳 Container-Info: {json.dumps(info, indent=2)}"
+
+def list_files(directory="/app"):
+    try:
+        if not os.path.exists(directory):
+            return {"error": f"Verzeichnis {directory} existiert nicht"}
         
-    def show_welcome(self):
-        if not self.welcome_shown:
-            print("🚀 MCP Terminal Client")
-            print("=" * 50)
-            print(f"🐳 Container: {self.hostname}")
-            print(f"🕐 Zeit: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            print(f"📁 Arbeitsverzeichnis: {os.getcwd()}")
-            print("=" * 50)
-            print("💡 Verfügbare Befehle:")
-            print("  help          - Hilfe anzeigen")
-            print("  tools         - Verfügbare Tools auflisten")
-            print("  status        - Container-Status")
-            print("  time          - Aktuelle Zeit")
-            print("  info          - Container-Informationen")
-            print("  files [dir]   - Dateien auflisten")
-            print("  calc <expr>   - Berechnung durchführen")
-            print("  quit/exit     - Beenden")
-            print("=" * 50)
-            self.welcome_shown = True
-
-    def show_help(self):
-        print("\n📋 MCP Terminal Client - Hilfe")
-        print("-" * 40)
-        print("🔧 System-Befehle:")
-        print("  help          - Diese Hilfe anzeigen")
-        print("  status        - Container-Status abrufen")
-        print("  info          - Container-Informationen")
-        print("  time          - Aktuelle Container-Zeit")
-        print("  files [dir]   - Dateien in Verzeichnis auflisten")
-        print("")
-        print("🧮 Berechnungs-Befehle:")
-        print("  calc add 5 3      - Zahlen addieren")
-        print("  calc mult 4 7     - Zahlen multiplizieren")
-        print("  calc sqrt 16      - Quadratwurzel berechnen")
-        print("")
-        print("🎯 Beispiele:")
-        print("  > calc add 10 20")
-        print("  > files /app")
-        print("  > status")
-        print("-" * 40)
-
-    def get_container_status(self):
-        try:
-            uptime = subprocess.check_output(["uptime"]).decode().strip()
-            processes = len([p for p in os.listdir("/proc") if p.isdigit()])
-            
-            status = {
-                "hostname": self.hostname,
-                "uptime": uptime,
-                "processes": processes,
-                "timestamp": datetime.datetime.now().isoformat(),
-                "working_dir": os.getcwd(),
-                "memory_info": "Verfügbar in /proc/meminfo"
-            }
-            return status
-        except Exception as e:
-            return {"error": f"Fehler beim Abrufen des Status: {str(e)}"}
-
-    def get_container_info(self):
-        try:
-            python_version = subprocess.check_output(["python", "--version"]).decode().strip()
-            info = {
-                "hostname": self.hostname,
-                "working_directory": os.getcwd(),
-                "environment": "Container",
-                "python_version": python_version,
-                "container_id": os.environ.get("HOSTNAME", "unknown"),
-                "user": os.environ.get("USER", "unknown"),
-                "path": os.environ.get("PATH", "unknown")[:100] + "..."
-            }
-            return info
-        except Exception as e:
-            return {"error": f"Fehler: {str(e)}"}
-
-    def list_files(self, directory="/app"):
-        try:
-            if not os.path.exists(directory):
-                return {"error": f"Verzeichnis {directory} existiert nicht"}
-            
-            files = []
-            for item in os.listdir(directory):
-                item_path = os.path.join(directory, item)
-                try:
-                    if os.path.isfile(item_path):
-                        size = os.path.getsize(item_path)
-                        modified = datetime.datetime.fromtimestamp(os.path.getmtime(item_path))
-                        files.append({
-                            "name": item,
-                            "type": "file",
-                            "size": size,
-                            "modified": modified.strftime("%Y-%m-%d %H:%M:%S")
-                        })
-                    elif os.path.isdir(item_path):
-                        files.append({
-                            "name": item,
-                            "type": "directory",
-                            "size": "-",
-                            "modified": "-"
-                        })
-                except (OSError, PermissionError):
+        files = []
+        for item in os.listdir(directory):
+            item_path = os.path.join(directory, item)
+            try:
+                if os.path.isfile(item_path):
+                    size = os.path.getsize(item_path)
+                    modified = datetime.datetime.fromtimestamp(os.path.getmtime(item_path))
                     files.append({
                         "name": item,
-                        "type": "unknown",
-                        "size": "?",
-                        "modified": "?"
+                        "type": "file",
+                        "size": size,
+                        "modified": modified.strftime("%Y-%m-%d %H:%M:%S")
                     })
-            
-            return {"directory": directory, "files": files}
-        except Exception as e:
-            return {"error": f"Fehler: {str(e)}"}
-
-    def calculate(self, operation, *args):
-        try:
-            if operation == "add" and len(args) == 2:
-                return float(args[0]) + float(args[1])
-            elif operation == "mult" and len(args) == 2:
-                return float(args[0]) * float(args[1])
-            elif operation == "sqrt" and len(args) == 1:
-                import math
-                num = float(args[0])
-                if num < 0:
-                    return {"error": "Kann keine Quadratwurzel einer negativen Zahl berechnen"}
-                return math.sqrt(num)
-            else:
-                return {"error": f"Unbekannte Operation oder falsche Anzahl Argumente: {operation}"}
-        except ValueError:
-            return {"error": "Ungültige Zahlen"}
-        except Exception as e:
-            return {"error": f"Berechnungsfehler: {str(e)}"}
-
-    def format_output(self, data):
-        if isinstance(data, dict):
-            if "error" in data:
-                print(f"❌ {data['error']}")
-            else:
-                print(json.dumps(data, indent=2, ensure_ascii=False))
-        elif isinstance(data, (int, float)):
-            print(f"📊 Ergebnis: {data}")
-        else:
-            print(f"📄 {data}")
-
-    def run(self):
-        self.show_welcome()
+                elif os.path.isdir(item_path):
+                    files.append({
+                        "name": item,
+                        "type": "directory",
+                        "size": "-",
+                        "modified": "-"
+                    })
+            except (OSError, PermissionError):
+                files.append({
+                    "name": item,
+                    "type": "unknown",
+                    "size": "?",
+                    "modified": "?"
+                })
         
-        while True:
-            try:
-                command = input(f"\n🐳 {self.hostname} > ").strip()
-                
-                if not command:
-                    continue
-                
-                parts = command.split()
-                cmd = parts[0].lower()
-                
-                if cmd in ['quit', 'exit', 'q']:
-                    print("👋 Auf Wiedersehen!")
-                    break
-                elif cmd == 'help':
-                    self.show_help()
-                elif cmd == 'tools':
-                    tools = [
-                        "add_numbers", "multiply_numbers", "get_current_time",
-                        "get_container_info", "square_root", "list_files", "container_status"
-                    ]
-                    print("🛠️ Verfügbare MCP-Tools:")
-                    for tool in tools:
-                        print(f"  • {tool}")
-                elif cmd == 'status':
-                    result = self.get_container_status()
-                    self.format_output(result)
-                elif cmd == 'info':
-                    result = self.get_container_info()
-                    self.format_output(result)
-                elif cmd == 'time':
-                    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    print(f"🕐 Container-Zeit: {current_time}")
-                elif cmd == 'files':
-                    directory = parts[1] if len(parts) > 1 else "/app"
-                    result = self.list_files(directory)
-                    self.format_output(result)
-                elif cmd == 'calc':
-                    if len(parts) < 2:
-                        print("❌ Verwendung: calc <operation> [args...]")
-                        print("   Beispiele: calc add 5 3, calc sqrt 16")
-                    else:
-                        operation = parts[1]
-                        args = parts[2:] if len(parts) > 2 else []
-                        result = self.calculate(operation, *args)
-                        self.format_output(result)
-                else:
-                    print(f"❌ Unbekannter Befehl: {cmd}")
-                    print("💡 Verwenden Sie 'help' für verfügbare Befehle")
-                    
-            except KeyboardInterrupt:
-                print("\n👋 Beende Terminal Client...")
-                break
-            except EOFError:
-                print("\n👋 Auf Wiedersehen!")
-                break
-            except Exception as e:
-                print(f"❌ Fehler: {str(e)}")
+        return {"directory": directory, "files": files}
+    except Exception as e:
+        return {"error": f"Fehler: {str(e)}"}
+
+def calculate(operation, *args):
+    try:
+        if operation == "add" and len(args) == 2:
+            return float(args[0]) + float(args[1])
+        elif operation == "mult" and len(args) == 2:
+            return float(args[0]) * float(args[1])
+        elif operation == "sqrt" and len(args) == 1:
+            num = float(args[0])
+            if num < 0:
+                return {"error": "Kann keine Quadratwurzel einer negativen Zahl berechnen"}
+            return math.sqrt(num)
+        else:
+            return {"error": f"Unbekannte Operation oder falsche Anzahl Argumente: {operation}"}
+    except ValueError:
+        return {"error": "Ungültige Zahlen"}
+    except Exception as e:
+        return {"error": f"Berechnungsfehler: {str(e)}"}
+
+def get_container_status():
+    try:
+        uptime = subprocess.check_output(["uptime"]).decode().strip()
+        processes = len([p for p in os.listdir("/proc") if p.isdigit()])
+        
+        status = {
+            "hostname": os.environ.get("HOSTNAME", "unknown"),
+            "uptime": uptime,
+            "processes": processes,
+            "timestamp": datetime.datetime.now().isoformat(),
+            "working_dir": os.getcwd(),
+            "memory_info": "Verfügbar in /proc/meminfo"
+        }
+        return status
+    except Exception as e:
+        return {"error": f"Fehler beim Abrufen des Status: {str(e)}"}
+
+# --- Befehls-Mapping ---
+COMMANDS = {
+    "time": get_time,
+    "info": get_info,
+    "files": list_files,
+    "calc": calculate,
+    "status": get_container_status,
+}
+
+def print_help():
+    help_text = "💡 Verfügbare Befehle:\n"
+    for cmd, func in COMMANDS.items():
+        help_text += f"  {cmd:<12} - {func.__doc__ or 'Keine Beschreibung'}\n"
+    return help_text
+
+COMMANDS["help"] = print_help
+
+# --- Hauptlogik ---
+def execute_command(command_line):
+    """Führt einen einzelnen Befehl aus und gibt das Ergebnis zurück."""
+    if not command_line:
+        return ""
+        
+    parts = command_line.strip().split()
+    command = parts[0]
+    args = parts[1:] # Für Befehle mit Argumenten
+
+    if command in COMMANDS:
+        # Führen Sie die zugehörige Funktion aus
+        if command == "files":
+            result = COMMANDS[command](*args)
+        elif command == "calc":
+            result = COMMANDS[command](args[0], *args[1:])
+        else:
+            result = COMMANDS[command]()
+        
+        if isinstance(result, dict):
+            return json.dumps(result, indent=2, ensure_ascii=False)
+        elif isinstance(result, (int, float)):
+            return f"📊 Ergebnis: {result}"
+        else:
+            return str(result)
+    else:
+        return f"❌ Unbekannter Befehl: {command}\n💡 Verwenden Sie 'help' für verfügbare Befehle"
 
 if __name__ == "__main__":
-    client = MCPTerminalClient()
-    client.run()
+    # Liest einen einzelnen Befehl von der Kommandozeile (Argumente)
+    if len(sys.argv) > 1:
+        full_command = " ".join(sys.argv[1:])
+        output = execute_command(full_command)
+        print(output)
+    else:
+        # Wenn ohne Argumente aufgerufen, zeige Hilfe
+        print("Fehler: Bitte geben Sie einen Befehl an.\n")
+        print(print_help())
 EOF
 
     chmod +x terminal_client.py
     log_success "Terminal Client erstellt"
+}
+
+# API Server erstellen
+create_api_server() {
+    log_info "Erstelle API Server..."
+    
+    cat > app.py << 'EOF'
+import subprocess
+from flask import Flask, request, jsonify
+import os
+
+app = Flask(__name__)
+
+@app.route('/command', methods=['POST'])
+def handle_command():
+    """
+    Nimmt einen Befehl als JSON entgegen, führt ihn im Container-Kontext aus
+    und gibt das Ergebnis zurück.
+    """
+    data = request.json
+    if not data or 'command' not in data:
+        return jsonify({"error": "Befehl fehlt. Bitte senden Sie ein JSON-Objekt wie {'command': 'your_command'}"}), 400
+
+    command_to_run = data['command']
+    
+    # Sicherheitshinweis: Wir zerlegen den Befehl, um Injection zu vermeiden.
+    # Da wir nur vordefinierte Befehle haben, ist das Risiko gering, aber es ist gute Praxis.
+    command_parts = command_to_run.strip().split()
+
+    try:
+        # Führe das Client-Skript als separaten Prozess aus
+        # Dies stellt sicher, dass jeder API-Aufruf sauber und isoliert ist
+        process = subprocess.run(
+            ['python', 'terminal_client.py'] + command_parts,
+            capture_output=True,
+            text=True,
+            timeout=10, # Timeout, um Hängenbleiben zu verhindern
+            check=True    # Löst eine Ausnahme bei einem Fehler im Skript aus
+        )
+        
+        output = process.stdout.strip()
+        
+        return jsonify({
+            "command": command_to_run,
+            "output": output,
+            "status": "success"
+        })
+
+    except subprocess.CalledProcessError as e:
+        return jsonify({
+            "command": command_to_run,
+            "error": "Fehler bei der Befehlsausführung im Skript.",
+            "details": e.stderr.strip(),
+            "status": "error"
+        }), 500
+    except Exception as e:
+        return jsonify({
+            "command": command_to_run,
+            "error": "Ein interner API-Fehler ist aufgetreten.",
+            "details": str(e),
+            "status": "error"
+        }), 500
+
+if __name__ == '__main__':
+    # Die API lauscht auf allen Interfaces (0.0.0.0) auf Port 5000
+    app.run(host='0.0.0.0', port=5000, debug=True)
+EOF
+
+    chmod +x app.py
+    log_success "API Server erstellt"
 }
 
 # Streamlit Client für Container
@@ -710,6 +713,7 @@ cleanup() {
     echo "🛑 Beende Container Services..."
     pkill -f "mcp_server.py"
     pkill -f "streamlit"
+    pkill -f "app.py"
     exit 0
 }
 
@@ -729,16 +733,23 @@ echo "🚀 Starte Streamlit Web-Client (Port 8501)..."
 streamlit run streamlit_client.py --server.port 8501 --server.headless true &
 STREAMLIT_PID=$!
 
+sleep 3
+
+echo "🚀 Starte API Server (Port 5000)..."
+python app.py &
+API_PID=$!
+
 # Status-Ausgabe
 echo "================================="
 echo "✅ Container Services gestartet!"
 echo "🔗 MCP Inspector: http://localhost:6247"
 echo "🔗 Web Client: http://localhost:8501"
+echo "🔗 API Server: http://localhost:5000"
 echo "🐳 Container: $(hostname)"
 echo "================================="
 
 # Warten auf Services
-wait $MCP_PID $STREAMLIT_PID
+wait $MCP_PID $STREAMLIT_PID $API_PID
 EOF
 
     chmod +x start_container_services.sh
@@ -878,6 +889,7 @@ else
         -p 6247:6247 \
         -p 8501:8501 \
         -p 8080:8080 \
+        -p 5000:5000 \
         $IMAGE_NAME
     
     if [ $? -eq 0 ]; then
@@ -1076,6 +1088,7 @@ show_container_info() {
     echo -e "${GREEN}🌐 Web-Interfaces:${NC}"
     echo "   • MCP Inspector: http://localhost:6247"
     echo "   • Streamlit Client: http://localhost:8501"
+    echo "   • API Server: http://localhost:5000"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 }
 
@@ -1465,6 +1478,10 @@ Nach dem Container-Start sind verfügbar:
 2. **Streamlit Web-Client** - http://localhost:8501
    - Chat-Interface
    - Container-spezifische Informationen
+
+3. **API Server** - http://localhost:5000
+   - REST-API für Open Interpreter und andere externe Tools
+   - Ermöglicht die Ausführung von Terminal-Client-Befehlen über HTTP/JSON
 
 ## 🖥️ Terminal-Client
 
@@ -1936,6 +1953,7 @@ main() {
     create_requirements
     create_mcp_server
     create_terminal_client
+    create_api_server
     create_streamlit_client
     create_container_services
     create_container_management
