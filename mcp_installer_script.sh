@@ -146,8 +146,9 @@ COPY app.py .
 
 # Python-Dependencies installieren
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install Flask
+RUN pip install --upgrade pip setuptools wheel
+RUN pip install --no-cache-dir --upgrade -r requirements.txt
+RUN pip install --no-cache-dir --upgrade fastmcp streamlit flask
 
 # MCP-Server Dateien kopieren
 COPY mcp_server.py .
@@ -214,7 +215,7 @@ import subprocess
 import socket
 
 # MCP Server initialisieren
-mcp = FastMCP("Containerized MCP Server")
+mcp = FastMCP("Containerized MCP Server" , port=6247, host="0.0.0.0", debug=True )
 
 @mcp.tool()
 def add_numbers(a: float, b: float) -> float:
@@ -287,7 +288,7 @@ def container_status() -> dict:
     except Exception as e:
         return {"error": f"Fehler beim Abrufen des Status: {str(e)}"}
 
-@mcp.resource("container-logs")
+@mcp.resource("file:///container-logs")
 def get_container_logs() -> str:
     """Container-Logs Resource"""
     try:
@@ -296,7 +297,7 @@ def get_container_logs() -> str:
     except Exception as e:
         return f"Fehler beim Abrufen der Logs: {str(e)}"
 
-@mcp.resource("system-info")
+@mcp.resource("file:///system-info")
 def get_system_info() -> str:
     """System-Informationen Resource"""
     return json.dumps({
@@ -311,7 +312,7 @@ if __name__ == "__main__":
     print("🚀 Starte MCP-Server im Container...")
     print(f"📍 Hostname: {socket.gethostname()}")
     print(f"🕐 Zeit: {datetime.datetime.now()}")
-    mcp.run()
+    mcp.run("sse")
 EOF
 
     chmod +x mcp_server.py
