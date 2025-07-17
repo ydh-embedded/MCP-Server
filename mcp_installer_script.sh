@@ -593,10 +593,13 @@ with st.sidebar:
         # MCP-Server Status prüfen
         def check_mcp_server():
             try:
-                # Prüfe lokalen MCP-Server
-                result = subprocess.run(['pgrep', '-f', 'mcp_server.py'], 
-                                       capture_output=True, text=True)
-                return len(result.stdout.strip()) > 0
+                # HTTP-basierter Check statt pgrep
+                import socket
+                s = socket.socket()
+                s.settimeout(1)
+                s.connect(('localhost', 6247))
+                s.close()
+                return True
             except:
                 return False
         
